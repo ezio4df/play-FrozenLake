@@ -10,6 +10,7 @@ dependencies = [
     "matplotlib>=3.10.8",
     "moviepy>=2.2.1",
     "numpy>=2.4.0",
+    "opencv-python>=4.11.0.86",
     "pandas>=2.3.3",
     "pygame>=2.6.1",
     "scikit-learn>=1.8.0",

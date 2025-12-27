@@ -7,9 +7,7 @@ This repository contains Jupyter notebooks implementing Deep Q-Learning (DQN) on
   → Deterministic (no slip)  
   → Fixed map layout  
 
-<video src="files/frozenlake_4x4-episode-0.mp4" controls autoplay loop width="400">
-    Your browser does not support the video tag.
-</video>
+![](files/frozenlake_4x4-episode-0.gif)
 
 - **`02_frozenlake_8x8.ipynb`**: 🚀  
   → 8×8 grid  

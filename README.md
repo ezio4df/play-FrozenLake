@@ -27,3 +27,8 @@ This repository contains Jupyter notebooks implementing Deep Q-Learning (DQN) on
   → 8×8 grid  
   → Deterministic (no slip)  
   → Random map layout  
+
+- **`05_frozenlake_8x8_random_slippery.ipynb`**: ⏰  
+  → 8×8 grid  
+  → Stochastic (slippery)  
+  → Random map layout  

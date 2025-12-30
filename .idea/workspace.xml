@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3e58e3ad-22f4-40bc-8749-8a1df961e413" name="Changes" comment="" />
+    <list default="true" id="3e58e3ad-22f4-40bc-8749-8a1df961e413" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/03_frozenlake_8x8_slippery.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/03_frozenlake_8x8_slippery.ipynb" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />

@@ -3,7 +3,7 @@
 
 # # FrozenLake [8x8 | random map | no slip]
 
-# In[ ]:
+# In[14]:
 
 
 import torch
@@ -32,7 +32,39 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Pytorch device:", device)
 
 
+# ## export raw training img -> video
+
+# In[15]:
+
+
+import os
+
+
+def count_files(dir_path: str) -> int:
+    return sum(
+        1 for entry in os.scandir(dir_path)
+        if entry.is_file()
+    )
+
+
+f"files/pics/{count_files("files/pics/") + 1:04d}.png"
+
+
+# In[32]:
+
+
+# !rm files/pics/*
+
+
 # In[ ]:
+
+
+# !ffmpeg -framerate 2 -i files/pics/%04d.png -c:v libx264 -pix_fmt yuv420p files/output-1.mp4
+
+
+# ## Img Wrapper
+
+# In[33]:
 
 
 class FrozenLakeImageWrapper(gym.ObservationWrapper):
@@ -62,6 +94,7 @@ class FrozenLakeImageWrapper(gym.ObservationWrapper):
 
         # Resize
         img = img.resize(self.img_size, Image.NEAREST)
+        img.save(f"files/pics/{count_files("files/pics/") + 1:04d}.png")  #!DEBUG!#
         obs = np.array(img, dtype=np.uint8)
 
         # Add channel dimension for grayscale
@@ -80,32 +113,41 @@ def preprocess_frame(frame, resize=(84, 84), grayscale=True):
     return np.array(img)
 
 
-# In[ ]:
+# In[34]:
 
 
 class RandomMapResetWrapper(gym.Wrapper):
-    def __init__(self, env, size=8, p=0.8):
+    def __init__(self, env, size=8, p=0.8, change_every=1):
         super().__init__(env)
         self.size = size
         self.p = p
-        self.current_desc = None  # <-- new field
+        self.change_every = change_every
+        self.episode_count = 0
+        self.current_desc = None
+        self._make_env_with_random_map()
 
-    def reset(self, **kwargs):
+    def _make_env_with_random_map(self):
         new_desc = generate_random_map(size=self.size, p=self.p)
-        self.current_desc = tuple(new_desc)  # hashable
+        self.current_desc = tuple(new_desc)
         self.env = gym.make(
             "FrozenLake-v1",
             desc=new_desc,
-            is_slippery=self.env.spec.kwargs.get("is_slippery", True),
+            is_slippery=self.env.spec.kwargs.get("is_slippery", False),
             render_mode=self.env.render_mode
         )
+
+    def reset(self, **kwargs):
+        self.episode_count += 1
+        if (self.episode_count - 1) % self.change_every == 0:
+            # Time to change map
+            self._make_env_with_random_map()
         return self.env.reset(**kwargs)
 
     def step(self, action):
         return self.env.step(action)
 
 
-# In[ ]:
+# In[35]:
 
 
 class FrozenLakeCNN(nn.Module):
@@ -115,9 +157,9 @@ class FrozenLakeCNN(nn.Module):
         channels = 1 if grayscale else 3
 
         self.conv = nn.Sequential(
-            nn.Conv2d(channels, 32, kernel_size=8, stride=4),
+            nn.Conv2d(channels, 32, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2),
             nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=1),
             nn.ReLU(),
@@ -126,7 +168,7 @@ class FrozenLakeCNN(nn.Module):
 
         # Calculate feature size: ((84-8)//4 + 1) = 20 → ((20-4)//2 +1)=9 → (9-3+1)=7
         self.fc = nn.Sequential(
-            nn.Linear(64 * 7 * 7, 512),
+            nn.Linear(64 * 18 * 18, 512),
             nn.ReLU(),
             nn.Linear(512, action_size)
         )
@@ -137,7 +179,7 @@ class FrozenLakeCNN(nn.Module):
         return self.fc(self.conv(x))
 
 
-# In[ ]:
+# In[36]:
 
 
 class ReplayBuffer:
@@ -156,7 +198,7 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-# In[ ]:
+# In[37]:
 
 
 class DQNAgent:
@@ -225,20 +267,18 @@ class DQNAgent:
             self.target_net.load_state_dict(self.q_net.state_dict())
 
 
-# In[ ]:
+# In[38]:
 
 
-def create_env(render_mode=None, use_image=False, img_size=(84, 84), grayscale=True, random_map_every_reset=True):
-    # Start with a dummy env to get action space, but we’ll replace it on first reset
-    env = gym.make("FrozenLake8x8-v1", is_slippery=True, render_mode=render_mode)
+def create_env(render_mode=None, use_image=False, img_size=(84, 84), grayscale=True,
+               random_map_every_reset=True, change_every=1):
+    env = gym.make("FrozenLake8x8-v1", is_slippery=False, render_mode=render_mode)
     if random_map_every_reset:
-        env = RandomMapResetWrapper(env, size=8)
+        env = RandomMapResetWrapper(env, size=8, p=0.8, change_every=change_every)
     if use_image:
         env = FrozenLakeImageWrapper(env, img_size=img_size, grayscale=grayscale)
         state_shape = (*img_size, 1 if grayscale else 3)
     else:
-        # For non-image mode, you’d also need to handle dynamic state space,
-        # but since you're using image mode, we focus on that.
         state_shape = env.observation_space.n
     action_size = env.action_space.n
     return env, state_shape, action_size
@@ -259,32 +299,32 @@ def train_dqn(agent, env, state_shape, action_size,
     print("Starting training...")
 
     for episode in range(episodes):
-        # Record the map used this episode
-        if hasattr(env, 'current_desc'):
-            recent_maps.append(env.current_desc)
-        elif hasattr(env.env, 'current_desc'):  # in case wrapped
-            recent_maps.append(env.env.current_desc)
-        else:
-            recent_maps.append(None)  # fallback (shouldn't happen)
-
         state, _ = env.reset()
         # state is now image - no one-hot needed
         total_reward = 0
+
+        current_map = getattr(env.env, 'current_desc', None)
+        recent_maps.append(current_map)
 
         for t in range(max_steps):
             action = agent.act(state, epsilon)
             next_state, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
 
-            # FIXED REWARD SHAPING (preserve original reward)
-            original_reward = reward
+            # --- REWARD SHAPING ---
+            shaped_reward = reward
             if not truncated and terminated:
-                if original_reward == 1.0:  # GOAL
-                    shaped_reward = 1.0
-                else:  # HOLE
-                    shaped_reward = -1.0
+                if reward == 1.0:
+                    shaped_reward = 1.0  # goal
+                else:
+                    shaped_reward = -1.0  # hole
             else:
-                shaped_reward = original_reward - 0.01  # Gentle penalty
+                # # Penalize stuck moves (only in discrete mode!)
+                # print('-~>', next_state, state)
+                # if next_state == state:
+                #     shaped_reward += -0.1  # strong penalty for no-op
+                # else:
+                shaped_reward += -0.01  # small step penalty
 
             agent.remember(state, action, shaped_reward, next_state, done)
             agent.replay()
@@ -301,12 +341,12 @@ def train_dqn(agent, env, state_shape, action_size,
         history_epsilons.append(epsilon)
 
         if episode % 100 == 0:
-            unique_maps = len(set(recent_maps)) if recent_maps else 0
+            unique_maps = len(set(m for m in recent_maps if m is not None))
             print(f"Episode {episode}, Avg Reward: {np.mean(scores):.3f}, "
                   f"Epsilon: {epsilon:.3f}, Unique Maps (last 100): {unique_maps}")
 
         if episode % 1500 == 0 and episode > 0:
-            render_env, _, _ = create_env(render_mode="human", use_image=True)
+            render_env, _, _ = create_env(render_mode="human", use_image=True, random_map_every_reset=True)
             evaluate_agent(agent, render_env, episodes=2, no_log=True)
             render_env.close()
 
@@ -346,31 +386,33 @@ def act(self, state, epsilon=0.0):
 
 # ## training loop
 
-# In[ ]:
+# In[41]:
 
-
-grayscale = True  # Set to False for RGB
-img_size = (84, 84)
 
 _, _, action_size = create_env(use_image=False)
-env, state_shape, _ = create_env(render_mode="rgb_array", use_image=True,
-                                 img_size=img_size, grayscale=grayscale)
+env, state_shape, _ = create_env(
+    render_mode="rgb_array",
+    use_image=True,
+    img_size=(84, 84),
+    grayscale=True,
+    random_map_every_reset=True,
+    change_every=2_000)
 
 agent = DQNAgent(
     modelClass=lambda s, a: FrozenLakeCNN(a, grayscale=grayscale),
     state_size=None,  # Not used
     action_size=action_size,
-    lr=5e-5,
-    gamma=0.999,
-    buffer_size=50_000,
-    batch_size=64,
-    target_update=10
+    lr=1e-4,
+    gamma=0.99,
+    buffer_size=20_000,
+    batch_size=2_000,
+    target_update=100
 )
 
 history_rewards, history_epsilons = [], []
 
 
-# In[ ]:
+# In[42]:
 
 
 try:
@@ -379,11 +421,11 @@ try:
         env=env,
         state_shape=state_shape,
         action_size=action_size,
-        episodes=20_000,
-        max_steps=1000,
+        episodes=2_000,
+        max_steps=500,
         epsilon_start=1.0,
         epsilon_end=0.01,
-        epsilon_decay=0.9995,
+        epsilon_decay=0.999,
     )
 finally:
     # Plotting code (unchanged)
